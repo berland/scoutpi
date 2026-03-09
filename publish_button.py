@@ -44,7 +44,7 @@ def main() -> None:
     mqttclient.on_disconnect = on_mqtt_disconnect
     mqttclient.on_connect = on_connect
     mqttclient.tls_set()
-    mqttclient.username_pw_set(os.getenv("MQTTS_USER"), os.getenv("MQTTS_PASSWORD"))
+    mqttclient.username_pw_set(os.getenv("MQTTS_USERNAME"), os.getenv("MQTTS_PASSWORD"))
     mqttclient.connect(os.getenv("MQTTS_HOST"), int(os.getenv("MQTTS_PORT")))
     mqttclient.loop(2)  # Give time to connect
 
