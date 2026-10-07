@@ -1,18 +1,22 @@
-import sys
-import time
 import os
+import sys
+import threading
+import time
 
+import dotenv
 import paho.mqtt.client as mqtt
 from gpiozero import Button
-import dotenv
 
 dotenv.load_dotenv()
 
 BUTTON_PIN = 17
 RATE_LIMIT = 1.0  # Minimum seconds between allowed clicks
+ON_DURATION = 60  # Seconds to keep the button state ON after the last press
 
 last_button_pressed = 0
 mqttclient = mqtt.Client()
+off_timer = None
+state_lock = threading.Lock()
 
 
 def on_mqtt_disconnect(client, userdata, rc=0):
@@ -21,24 +25,45 @@ def on_mqtt_disconnect(client, userdata, rc=0):
     time.sleep(1)
     sys.exit(1)
 
+
 def on_connect(client, userdata, flags, rc):
     print("Connected to mqtt")
     # Subscription is set up here to handle reconnects
     client.subscribe("hanpi/+")
 
+
+def publish_off():
+    global mqttclient, off_timer
+    with state_lock:
+        mqttclient.publish("hanpi/button", "OFF", retain=True)
+        off_timer = None
+        print("Published button off")
+
+
 def button_pressed():
-    global last_button_pressed, mqttclient
+    global last_button_pressed, mqttclient, off_timer
     current_time = time.time()
-    
+
     if current_time - last_button_pressed >= RATE_LIMIT:
-        mqttclient.publish("hanpi/button", "ON")
         last_button_pressed = current_time
+        mqttclient.publish("hanpi/button", "ON", retain=True)
+
+        with state_lock:
+            if off_timer is not None:
+                off_timer.cancel()
+
+            off_timer = threading.Timer(ON_DURATION, publish_off)
+            off_timer.daemon = True
+            off_timer.start()
+
         print("Published button press")
     else:
         print("Debounced button press")
 
+
 def button_released():
     print("Button was released!")
+
 
 def main() -> None:
     mqttclient.on_disconnect = on_mqtt_disconnect
@@ -59,8 +84,12 @@ def main() -> None:
         print("ready")
         mqttclient.loop_forever()
     except KeyboardInterrupt:
+        with state_lock:
+            if off_timer is not None:
+                off_timer.cancel()
         mqttclient.loop_stop()
         mqttclient.disconnect()
+
 
 if __name__ == "__main__":
     main()
